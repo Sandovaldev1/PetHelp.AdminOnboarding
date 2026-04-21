@@ -1,0 +1,351 @@
+@page "/submissions/{SubmissionId:guid}"
+@attribute [Authorize(Policy = AdminAccessPolicies.Admin)]
+@using Microsoft.AspNetCore.Components.Authorization
+@using PetHelp.Domain.Entities
+@inject IOnboardingAdminService OnboardingAdminService
+
+<PageTitle>Detalle de solicitud</PageTitle>
+
+<section class="admin-page detail-page">
+    <a class="back-link" href="/">← Volver al listado</a>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="feedback-box error-box">@_error</div>
+    }
+    else if (_loading)
+    {
+        <div class="empty-box">Cargando detalle...</div>
+    }
+    else if (_detail is null)
+    {
+        <div class="empty-box">No encontramos la solicitud indicada.</div>
+    }
+    else
+    {
+        <div class="detail-header">
+            <div>
+                <span class="eyebrow">Solicitud</span>
+                <h1>@_detail.OrganizationName</h1>
+                <p>
+                    Creada el @_detail.Created.LocalDateTime.ToString("dd/MM/yyyy HH:mm")
+                    y actualizada el @_detail.Updated.LocalDateTime.ToString("dd/MM/yyyy HH:mm").
+                </p>
+            </div>
+
+            <span class="@($"status-pill {GetStatusClass(_detail.Status)}")">@FormatStatus(_detail.Status)</span>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_flashMessage))
+        {
+            <div class="feedback-box success-box">@_flashMessage</div>
+        }
+
+        <div class="detail-grid">
+            <section class="panel-card">
+                <span class="eyebrow">Datos principales</span>
+                <h2>Información del refugio</h2>
+
+                <dl class="detail-meta-grid">
+                    <div>
+                        <dt>Organización</dt>
+                        <dd>@_detail.OrganizationName</dd>
+                    </div>
+                    <div>
+                        <dt>Contacto</dt>
+                        <dd>@_detail.ContactName</dd>
+                    </div>
+                    <div>
+                        <dt>Correo</dt>
+                        <dd>@_detail.ContactEmail</dd>
+                    </div>
+                    <div>
+                        <dt>Teléfono</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_detail.ContactPhone) ? "Sin dato" : _detail.ContactPhone)</dd>
+                    </div>
+                    <div>
+                        <dt>Dirección</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_detail.AddressLine) ? "Sin dato" : _detail.AddressLine)</dd>
+                    </div>
+                    <div>
+                        <dt>Ciudad</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_detail.City) ? "Sin dato" : _detail.City)</dd>
+                    </div>
+                    <div>
+                        <dt>Departamento</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_detail.Department) ? "Sin dato" : _detail.Department)</dd>
+                    </div>
+                    <div>
+                        <dt>ApplicantUserId</dt>
+                        <dd class="mono">@_detail.ApplicantUserId</dd>
+                    </div>
+                </dl>
+
+                @if (_detail.ShelterProfileId is Guid shelterProfileId)
+                {
+                    <div class="linked-box">
+                        <strong>Perfil vinculado:</strong> @shelterProfileId
+                        <span class="linked-pill">@(_detail.ShelterProfileIsActive ? "Activo" : "Inactivo")</span>
+                    </div>
+                }
+            </section>
+
+            <aside class="panel-card decision-panel">
+                <span class="eyebrow">Decisión</span>
+                <h2>Aprobar o rechazar</h2>
+                <p>La nota se guarda en la solicitud y también se registra en el historial de revisión.</p>
+
+                <label class="field-stack">
+                    <span>Notas internas</span>
+                    <InputTextArea class="notes-box" @bind-Value="_decisionNotes" />
+                </label>
+
+                <div class="decision-actions">
+                    <button class="primary-button" @onclick="ApproveAsync" disabled="@_saving">
+                        @_saving ? "Guardando..." : "Aprobar"
+                    </button>
+                    <button class="danger-button" @onclick="RejectAsync" disabled="@_saving">
+                        @_saving ? "Guardando..." : "Rechazar"
+                    </button>
+                </div>
+            </aside>
+        </div>
+
+        <section class="panel-card">
+            <div class="panel-toolbar">
+                <div>
+                    <span class="eyebrow">Adjuntos privados</span>
+                    <h2>PDF y fotos del registro</h2>
+                </div>
+            </div>
+
+            @if (_detail.Attachments.Count == 0)
+            {
+                <div class="empty-box">Esta solicitud aún no tiene adjuntos registrados.</div>
+            }
+            else
+            {
+                <div class="attachments-layout">
+                    <div class="attachment-groups">
+                        @foreach (var group in _detail.Attachments.GroupBy(x => x.Category))
+                        {
+                            <section class="attachment-group">
+                                <h3>@group.Key</h3>
+
+                                @foreach (var attachment in group)
+                                {
+                                    <button class="@($"attachment-tile {(attachment.Id == _selectedAttachmentId ? "selected" : string.Empty)}")"
+                                            @onclick="() => SelectAttachment(attachment.Id)">
+                                        <span class="attachment-title">@attachment.Label</span>
+                                        <span class="attachment-file">@attachment.FileName</span>
+                                        <span class="attachment-date">@attachment.Created.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
+                                    </button>
+                                }
+                            </section>
+                        }
+                    </div>
+
+                    <div class="preview-pane">
+                        @if (SelectedAttachment is null)
+                        {
+                            <div class="empty-box">Selecciona un adjunto para verlo.</div>
+                        }
+                        else
+                        {
+                            <div class="preview-header">
+                                <div>
+                                    <h3>@SelectedAttachment.Label</h3>
+                                    <p>@SelectedAttachment.FileName</p>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(SelectedAttachment.ReadUrl))
+                                {
+                                    <a class="secondary-link" href="@SelectedAttachment.ReadUrl" target="_blank" rel="noreferrer">
+                                        Abrir archivo
+                                    </a>
+                                }
+                            </div>
+
+                            @if (string.IsNullOrWhiteSpace(SelectedAttachment.ReadUrl))
+                            {
+                                <div class="feedback-box error-box">
+                                    No fue posible generar la URL temporal del adjunto. Revisa la configuración de Blob Storage.
+                                </div>
+                            }
+                            else if (SelectedAttachment.IsPdf)
+                            {
+                                <iframe class="asset-frame" src="@SelectedAttachment.ReadUrl" title="@SelectedAttachment.FileName"></iframe>
+                            }
+                            else if (SelectedAttachment.IsImage)
+                            {
+                                <img class="asset-image" src="@SelectedAttachment.ReadUrl" alt="@SelectedAttachment.FileName" />
+                            }
+                            else
+                            {
+                                <div class="empty-box">
+                                    Este archivo no tiene preview embebido. Usa <strong>Abrir archivo</strong> para descargarlo.
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="panel-card">
+            <span class="eyebrow">Historial</span>
+            <h2>Decisiones registradas</h2>
+
+            @if (_detail.DecisionHistory.Count == 0)
+            {
+                <div class="empty-box">Todavía no hay decisiones registradas.</div>
+            }
+            else
+            {
+                <div class="history-list">
+                    @foreach (var decision in _detail.DecisionHistory)
+                    {
+                        <article class="history-item">
+                            <div class="history-top">
+                                <span class="@($"status-pill {GetDecisionClass(decision.Decision)}")">@FormatDecision(decision.Decision)</span>
+                                <span class="submission-date">@decision.DecidedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
+                            </div>
+                            <p class="history-meta"><strong>Registrado por:</strong> @decision.DecidedByUserId</p>
+                            <p>@(string.IsNullOrWhiteSpace(decision.Notes) ? "Sin notas." : decision.Notes)</p>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public Guid SubmissionId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private string? _flashMessage;
+    private string? _decisionNotes;
+    private Guid? _selectedAttachmentId;
+    private OnboardingSubmissionDetail? _detail;
+
+    private OnboardingAttachmentItem? SelectedAttachment =>
+        _detail?.Attachments.FirstOrDefault(x => x.Id == _selectedAttachmentId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _detail = await OnboardingAdminService.GetSubmissionDetailAsync(SubmissionId);
+
+            if (_detail is not null)
+            {
+                _decisionNotes = _detail.StaffNotes;
+
+                if (_detail.Attachments.Count == 0)
+                {
+                    _selectedAttachmentId = null;
+                }
+                else if (_selectedAttachmentId is null || _detail.Attachments.All(x => x.Id != _selectedAttachmentId))
+                {
+                    _selectedAttachmentId = _detail.Attachments[0].Id;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _detail = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SelectAttachment(Guid attachmentId)
+    {
+        _selectedAttachmentId = attachmentId;
+    }
+
+    private Task ApproveAsync() => DecideAsync(true);
+
+    private Task RejectAsync() => DecideAsync(false);
+
+    private async Task DecideAsync(bool approve)
+    {
+        if (AuthenticationStateTask is null)
+        {
+            _error = "No se pudo resolver la sesion actual.";
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        _flashMessage = null;
+
+        try
+        {
+            var user = (await AuthenticationStateTask).User;
+            await OnboardingAdminService.DecideAsync(SubmissionId, approve, _decisionNotes, user);
+            _flashMessage = approve
+                ? "Solicitud aprobada y perfil del refugio sincronizado."
+                : "Solicitud rechazada correctamente.";
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string FormatStatus(OnboardingStatus status) => status switch
+    {
+        OnboardingStatus.Draft => "Borrador",
+        OnboardingStatus.Pending => "Pendiente",
+        OnboardingStatus.Approved => "Aprobado",
+        OnboardingStatus.Rejected => "Rechazado",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusClass(OnboardingStatus status) => status switch
+    {
+        OnboardingStatus.Pending => "pending",
+        OnboardingStatus.Approved => "approved",
+        OnboardingStatus.Rejected => "rejected",
+        _ => "draft"
+    };
+
+    private static string FormatDecision(OnboardingDecision decision) => decision switch
+    {
+        OnboardingDecision.Approved => "Aprobado",
+        OnboardingDecision.Rejected => "Rechazado",
+        _ => decision.ToString()
+    };
+
+    private static string GetDecisionClass(OnboardingDecision decision) => decision switch
+    {
+        OnboardingDecision.Approved => "approved",
+        OnboardingDecision.Rejected => "rejected",
+        _ => "draft"
+    };
+}

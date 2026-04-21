@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>2f58c5bf-b4b8-4d4f-97aa-3a707f1ea553</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pethelp\src\PetHelp.Core\PetHelp.Core.csproj" />
+    <ProjectReference Include="..\Pethelp\src\PetHelp.Domain\PetHelp.Domain.csproj" />
+    <ProjectReference Include="..\Pethelp\src\PetHelp.Infrastructure\PetHelp.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

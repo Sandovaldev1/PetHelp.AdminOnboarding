@@ -1,0 +1,157 @@
+@page "/"
+@attribute [Authorize(Policy = AdminAccessPolicies.Admin)]
+@inject IOnboardingAdminService OnboardingAdminService
+
+<PageTitle>Solicitudes</PageTitle>
+
+<section class="admin-page">
+    <div class="hero-card">
+        <span class="eyebrow">Panel externo</span>
+        <h1>Solicitudes de registro de refugios</h1>
+        <p>
+            Esta app revisa onboarding sin depender de que PetHelp.Blazor.Server esté corriendo. Lee SQL Server y genera
+            enlaces temporales a los adjuntos desde Azure Blob Storage.
+        </p>
+    </div>
+
+    <section class="panel-card">
+        <div class="panel-toolbar">
+            <div>
+                <span class="eyebrow">Filtro</span>
+                <h2>Cola de revisión</h2>
+            </div>
+
+            <div class="toolbar-actions">
+                <label class="field-stack">
+                    <span>Estado</span>
+                    <select class="admin-select" value="@_selectedFilter" @onchange="OnFilterChanged">
+                        <option value="Pending">Pendientes</option>
+                        <option value="All">Todos</option>
+                        <option value="Draft">Borradores</option>
+                        <option value="Approved">Aprobados</option>
+                        <option value="Rejected">Rechazados</option>
+                    </select>
+                </label>
+
+                <button class="secondary-button" @onclick="ReloadAsync" disabled="@_loading">
+                    @_loading ? "Actualizando..." : "Actualizar"
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="feedback-box error-box">@_error</div>
+        }
+        else if (_loading)
+        {
+            <div class="empty-box">Cargando solicitudes...</div>
+        }
+        else if (_items.Count == 0)
+        {
+            <div class="empty-box">No hay solicitudes para el filtro seleccionado.</div>
+        }
+        else
+        {
+            <div class="submission-grid">
+                @foreach (var item in _items)
+                {
+                    <a class="submission-card" href="@($"/submissions/{item.SubmissionId:D}")">
+                        <div class="submission-card-top">
+                            <span class="@($"status-pill {GetStatusClass(item.Status)}")">@FormatStatus(item.Status)</span>
+                            <span class="submission-date">@item.Updated.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</span>
+                        </div>
+
+                        <h3>@item.OrganizationName</h3>
+                        <p class="submission-contact">@item.ContactName</p>
+
+                        <dl class="meta-grid">
+                            <div>
+                                <dt>Correo</dt>
+                                <dd>@item.ContactEmail</dd>
+                            </div>
+                            <div>
+                                <dt>Teléfono</dt>
+                                <dd>@(string.IsNullOrWhiteSpace(item.ContactPhone) ? "Sin dato" : item.ContactPhone)</dd>
+                            </div>
+                        </dl>
+
+                        @if (!string.IsNullOrWhiteSpace(item.StaffNotes))
+                        {
+                            <p class="note-preview">@item.StaffNotes</p>
+                        }
+
+                        <span class="card-link">Abrir detalle</span>
+                    </a>
+                }
+            </div>
+        }
+    </section>
+</section>
+
+@code {
+    private string _selectedFilter = "Pending";
+    private bool _loading = true;
+    private string? _error;
+    private IReadOnlyList<OnboardingSubmissionListItem> _items = Array.Empty<OnboardingSubmissionListItem>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task OnFilterChanged(ChangeEventArgs args)
+    {
+        _selectedFilter = args.Value?.ToString() ?? "Pending";
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _items = await OnboardingAdminService.GetSubmissionsAsync(ParseFilter(_selectedFilter));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _items = Array.Empty<OnboardingSubmissionListItem>();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static PetHelp.Domain.Entities.OnboardingStatus? ParseFilter(string value)
+    {
+        if (string.Equals(value, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return Enum.TryParse<PetHelp.Domain.Entities.OnboardingStatus>(value, true, out var parsed)
+            ? parsed
+            : PetHelp.Domain.Entities.OnboardingStatus.Pending;
+    }
+
+    private static string FormatStatus(PetHelp.Domain.Entities.OnboardingStatus status) => status switch
+    {
+        PetHelp.Domain.Entities.OnboardingStatus.Draft => "Borrador",
+        PetHelp.Domain.Entities.OnboardingStatus.Pending => "Pendiente",
+        PetHelp.Domain.Entities.OnboardingStatus.Approved => "Aprobado",
+        PetHelp.Domain.Entities.OnboardingStatus.Rejected => "Rechazado",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusClass(PetHelp.Domain.Entities.OnboardingStatus status) => status switch
+    {
+        PetHelp.Domain.Entities.OnboardingStatus.Pending => "pending",
+        PetHelp.Domain.Entities.OnboardingStatus.Approved => "approved",
+        PetHelp.Domain.Entities.OnboardingStatus.Rejected => "rejected",
+        _ => "draft"
+    };
+}

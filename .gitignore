@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+
+*.user
+*.suo
+*.cache
+*.pdb
+
+appsettings.Local.json
+
+node_modules/
+
+*.log

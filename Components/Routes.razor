@@ -1,0 +1,23 @@
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <LayoutView Layout="typeof(Layout.MainLayout)">
+                    <section class="auth-gate">
+                        <span class="eyebrow">Acceso protegido</span>
+                        <h1>Inicia sesión para revisar solicitudes</h1>
+                        <p>
+                            Esta consola aprueba o rechaza registros de refugios directamente sobre la base de datos y
+                            el almacenamiento privado de PetHelp.
+                        </p>
+                        <div class="auth-gate-actions">
+                            <a class="primary-link" href="/auth/login">Entrar con tu cuenta admin</a>
+                            <a class="secondary-link" href="/">Volver al inicio</a>
+                        </div>
+                    </section>
+                </LayoutView>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

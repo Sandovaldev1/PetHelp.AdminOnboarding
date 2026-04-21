@@ -1,0 +1,49 @@
+@inherits LayoutComponentBase
+
+<div class="admin-shell">
+    <header class="admin-topbar">
+        <div class="brand-block">
+            <a class="brand-mark" href="/">PH</a>
+            <div>
+                <a class="brand-title" href="/">PetHelp Admin Onboarding</a>
+                <p class="brand-copy">Revision externa de solicitudes, adjuntos y decisiones.</p>
+            </div>
+        </div>
+
+        <AuthorizeView>
+            <Authorized Context="authState">
+                <div class="identity-block">
+                    <span class="identity-label">Sesión</span>
+                    <strong>@GetDisplayName(authState.User)</strong>
+                    <a class="identity-link" href="/auth/logout">Cerrar sesión</a>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="identity-block">
+                    <span class="identity-label">Sesión</span>
+                    <strong>Pendiente</strong>
+                    <a class="identity-link" href="/auth/login">Iniciar sesión</a>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </header>
+
+    <main class="admin-content">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private static string GetDisplayName(System.Security.Claims.ClaimsPrincipal user)
+    {
+        return UserEmailResolver.GetEmail(user)
+            ?? user.Identity?.Name
+            ?? "Administrador";
+    }
+}

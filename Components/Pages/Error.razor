@@ -1,0 +1,30 @@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Error</PageTitle>
+
+<section class="auth-gate">
+    <span class="eyebrow">Error</span>
+    <h1>Ocurrió un problema al procesar la solicitud</h1>
+    <p>Si el problema persiste, revisa la configuración de SQL Server, Auth0 o Azure Blob Storage.</p>
+
+    @if (ShowRequestId)
+    {
+        <p><strong>Request ID:</strong> <code>@RequestId</code></p>
+    }
+
+    <div class="auth-gate-actions">
+        <a class="primary-link" href="/">Volver al panel</a>
+    </div>
+</section>
+
+@code{
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}
