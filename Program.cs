@@ -8,6 +8,9 @@ using PetHelp.AdminOnboarding.Services;
 using PetHelp.Infrastructure.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
+var appAuthentication = builder.Configuration.GetSection(AppAuthenticationOptions.SectionName).Get<AppAuthenticationOptions>() ?? new();
+var useDevelopmentBypass = builder.Environment.IsDevelopment()
+    && appAuthentication.Mode.Equals("DevelopmentBypass", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -15,53 +18,70 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddPetHelpInfrastructure(builder.Configuration);
 builder.Services.AddScoped<IOnboardingAdminService, OnboardingAdminService>();
 builder.Services.Configure<AdminAccessOptions>(builder.Configuration.GetSection(AdminAccessOptions.SectionName));
+builder.Services.Configure<AppAuthenticationOptions>(builder.Configuration.GetSection(AppAuthenticationOptions.SectionName));
 
-builder.Services
-    .AddAuthentication(options =>
-    {
-        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-    })
-    .AddCookie()
-    .AddOpenIdConnect(options =>
-    {
-        var auth0 = builder.Configuration.GetSection("Auth0");
-        options.Authority = NormalizeAuth0Authority(auth0["Domain"]);
-        options.ClientId = auth0["ClientId"] ?? string.Empty;
-        options.ClientSecret = auth0["ClientSecret"] ?? string.Empty;
-        options.CallbackPath = auth0["CallbackPath"] ?? "/signin-oidc";
-        options.SignedOutCallbackPath = auth0["SignedOutCallbackPath"] ?? "/signout-callback-oidc";
-        options.ResponseType = "code";
-        options.SaveTokens = true;
-        options.GetClaimsFromUserInfoEndpoint = true;
-
-        options.Scope.Clear();
-        options.Scope.Add("openid");
-        options.Scope.Add("profile");
-        options.Scope.Add("email");
-
-        var configuredScopes = auth0.GetSection("Scopes").Get<string[]>() ?? [];
-        foreach (var scope in configuredScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
+if (useDevelopmentBypass)
+{
+    builder.Services
+        .AddAuthentication(options =>
         {
-            if (!options.Scope.Contains(scope, StringComparer.Ordinal))
-            {
-                options.Scope.Add(scope);
-            }
-        }
-
-        var audience = auth0["Audience"];
-        if (!string.IsNullOrWhiteSpace(audience))
+            options.DefaultScheme = DevelopmentBypassAuthenticationHandler.SchemeName;
+            options.DefaultAuthenticateScheme = DevelopmentBypassAuthenticationHandler.SchemeName;
+            options.DefaultChallengeScheme = DevelopmentBypassAuthenticationHandler.SchemeName;
+        })
+        .AddScheme<AuthenticationSchemeOptions, DevelopmentBypassAuthenticationHandler>(
+            DevelopmentBypassAuthenticationHandler.SchemeName,
+            _ => { });
+}
+else
+{
+    builder.Services
+        .AddAuthentication(options =>
         {
-            options.Events = new OpenIdConnectEvents
+            options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+        })
+        .AddCookie()
+        .AddOpenIdConnect(options =>
+        {
+            var auth0 = builder.Configuration.GetSection("Auth0");
+            options.Authority = NormalizeAuth0Authority(auth0["Domain"]);
+            options.ClientId = auth0["ClientId"] ?? string.Empty;
+            options.ClientSecret = auth0["ClientSecret"] ?? string.Empty;
+            options.CallbackPath = auth0["CallbackPath"] ?? "/signin-oidc";
+            options.SignedOutCallbackPath = auth0["SignedOutCallbackPath"] ?? "/signout-callback-oidc";
+            options.ResponseType = "code";
+            options.SaveTokens = true;
+            options.GetClaimsFromUserInfoEndpoint = true;
+
+            options.Scope.Clear();
+            options.Scope.Add("openid");
+            options.Scope.Add("profile");
+            options.Scope.Add("email");
+
+            var configuredScopes = auth0.GetSection("Scopes").Get<string[]>() ?? [];
+            foreach (var scope in configuredScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
             {
-                OnRedirectToIdentityProvider = context =>
+                if (!options.Scope.Contains(scope, StringComparer.Ordinal))
                 {
-                    context.ProtocolMessage.SetParameter("audience", audience);
-                    return Task.CompletedTask;
+                    options.Scope.Add(scope);
                 }
-            };
-        }
-    });
+            }
+
+            var audience = auth0["Audience"];
+            if (!string.IsNullOrWhiteSpace(audience))
+            {
+                options.Events = new OpenIdConnectEvents
+                {
+                    OnRedirectToIdentityProvider = context =>
+                    {
+                        context.ProtocolMessage.SetParameter("audience", audience);
+                        return Task.CompletedTask;
+                    }
+                };
+            }
+        });
+}
 
 builder.Services.AddAuthorization(options =>
 {
@@ -84,26 +104,41 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
-app.MapGet("/auth/login", (HttpContext httpContext, string? returnUrl) =>
+if (useDevelopmentBypass)
 {
-    var redirectUri = NormalizeLocalReturnUrl(returnUrl);
-    if (httpContext.User.Identity?.IsAuthenticated == true)
+    app.MapGet("/auth/login", (string? returnUrl) =>
     {
-        return Results.LocalRedirect(redirectUri);
-    }
+        return Results.LocalRedirect(NormalizeLocalReturnUrl(returnUrl));
+    }).AllowAnonymous();
 
-    return Results.Challenge(
-        new AuthenticationProperties { RedirectUri = redirectUri },
-        [OpenIdConnectDefaults.AuthenticationScheme]);
-}).AllowAnonymous();
-
-app.MapGet("/auth/logout", (HttpContext httpContext, string? returnUrl) =>
+    app.MapGet("/auth/logout", (string? returnUrl) =>
+    {
+        return Results.LocalRedirect(NormalizeLocalReturnUrl(returnUrl));
+    }).AllowAnonymous();
+}
+else
 {
-    var redirectUri = NormalizeLocalReturnUrl(returnUrl);
-    return Results.SignOut(
-        new AuthenticationProperties { RedirectUri = redirectUri },
-        [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
-}).AllowAnonymous();
+    app.MapGet("/auth/login", (HttpContext httpContext, string? returnUrl) =>
+    {
+        var redirectUri = NormalizeLocalReturnUrl(returnUrl);
+        if (httpContext.User.Identity?.IsAuthenticated == true)
+        {
+            return Results.LocalRedirect(redirectUri);
+        }
+
+        return Results.Challenge(
+            new AuthenticationProperties { RedirectUri = redirectUri },
+            [OpenIdConnectDefaults.AuthenticationScheme]);
+    }).AllowAnonymous();
+
+    app.MapGet("/auth/logout", (HttpContext httpContext, string? returnUrl) =>
+    {
+        var redirectUri = NormalizeLocalReturnUrl(returnUrl);
+        return Results.SignOut(
+            new AuthenticationProperties { RedirectUri = redirectUri },
+            [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
+    }).AllowAnonymous();
+}
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
